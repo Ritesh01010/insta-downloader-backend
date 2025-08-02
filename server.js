@@ -1,4 +1,4 @@
-// server.js - Final version that prioritizes finding the direct MP4 link
+// server.js - Final version with resilient MP4 link finding
 const express = require('express');
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
@@ -42,38 +42,50 @@ app.get('/api/download', async (req, res) => {
         // Go to the Instagram URL
         await page.goto(url, { waitUntil: 'networkidle2' });
 
-        // --- NEW LOGIC: Prioritize finding the direct MP4 link ---
+        // --- NEW, MOST RESILIENT LOGIC ---
         const videoData = await page.evaluate(() => {
-            // Priority 1: Look for the direct video URL in the JSON data
+            let videoUrl = null;
+            let thumbnailUrl = null;
+
+            // Priority 1: Search all script tags for JSON containing video_url
             try {
-                const scriptTag = document.querySelector('script[type="application/json"]');
-                const jsonData = JSON.parse(scriptTag.textContent);
-                const videoUrl = jsonData.entry_data.PostPage[0].graphql.shortcode_media.video_url;
-                if (videoUrl) {
-                    return {
-                        video_url: videoUrl,
-                        thumbnail_url: jsonData.entry_data.PostPage[0].graphql.shortcode_media.display_url
-                    };
+                const scripts = document.querySelectorAll('script[type="application/json"]');
+                for (const script of scripts) {
+                    const jsonData = JSON.parse(script.textContent);
+                    // This is a more robust way to find the video URL without a fixed path
+                    const jsonString = JSON.stringify(jsonData);
+                    const videoUrlMatch = jsonString.match(/"video_url":"([^"]+)"/);
+                    if (videoUrlMatch && videoUrlMatch[1]) {
+                        videoUrl = JSON.parse(`"${videoUrlMatch[1]}"`); // Unescape URL
+                        
+                        // Try to find a corresponding display URL for the thumbnail
+                        const thumbnailUrlMatch = jsonString.match(/"display_url":"([^"]+)"/);
+                        if (thumbnailUrlMatch && thumbnailUrlMatch[1]) {
+                           thumbnailUrl = JSON.parse(`"${thumbnailUrlMatch[1]}"`);
+                        }
+                        break; // Stop searching once we find a video
+                    }
                 }
             } catch (e) {
-                // JSON parsing failed, proceed to fallback
+                console.error('Error parsing JSON from script tags:', e.message);
             }
 
-            // Priority 2 (Fallback): Get the src from the <video> tag (might be a blob)
-            const videoElement = document.querySelector('video');
-            const thumbnailElement = document.querySelector('img.x5yr21d.xu96u03.x10l6tqk.x13vifvy.x87ps6o.xh8yej3');
+            // Priority 2 (Fallback): If no direct URL was found, get the src from the <video> tag
+            if (!videoUrl) {
+                console.warn('Could not find direct MP4 link, falling back to video tag src.');
+                const videoElement = document.querySelector('video');
+                const thumbnailElement = document.querySelector('img.x5yr21d.xu96u03.x10l6tqk.x13vifvy.x87ps6o.xh8yej3');
+                videoUrl = videoElement ? videoElement.src : null;
+                thumbnailUrl = thumbnailElement ? thumbnailElement.src : null;
+            }
             
-            return {
-                video_url: videoElement ? videoElement.src : null,
-                thumbnail_url: thumbnailElement ? thumbnailElement.src : null
-            };
+            return { video_url: videoUrl, thumbnail_url: thumbnailUrl };
         });
 
         if (videoData && videoData.video_url) {
-            console.log('Successfully found a video source.');
-            // Check if the URL is a blob, which is not ideal but better than nothing
+            console.log(`Successfully found video source: ${videoData.video_url.substring(0, 50)}...`);
             if (videoData.video_url.startsWith('blob:')) {
-                console.warn('Warning: Found a blob URL. Direct download may not work on all browsers.');
+                console.error('Critical Warning: Fallback resulted in a blob URL. The direct link finder failed.');
             }
             return res.json({
                 success: true,
