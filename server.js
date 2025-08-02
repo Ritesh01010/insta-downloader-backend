@@ -1,4 +1,4 @@
-// server.js - Final version using puppeteer-core and @sparticuz/chromium
+// server.js - Final version with anti-bot detection measures
 const express = require('express');
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
@@ -21,7 +21,7 @@ app.get('/api/download', async (req, res) => {
     }
 
     console.log(`Processing URL with @sparticuz/chromium: ${url}`);
-
+    
     let browser = null;
     try {
         // Launch the browser using the pre-packaged chromium
@@ -34,7 +34,17 @@ app.get('/api/download', async (req, res) => {
         });
 
         const page = await browser.newPage();
-
+        
+        // --- Anti-Bot Detection Measures ---
+        // Set a realistic user agent
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36');
+        // Set language to appear more human
+        await page.setExtraHTTPHeaders({
+            'Accept-Language': 'en-US,en;q=0.9'
+        });
+        // Increase the timeout to 60 seconds (60000 milliseconds)
+        page.setDefaultNavigationTimeout(60000);
+        
         // Go to the Instagram URL
         await page.goto(url, { waitUntil: 'networkidle2' });
 
