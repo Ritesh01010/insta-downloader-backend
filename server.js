@@ -1,4 +1,4 @@
-// server.js - Final version with automated login
+// server.js - Ultimate version with advanced login handling
 const express = require('express');
 const puppeteer = require('puppeteer-core');
 const chromium = require('@sparticuz/chromium');
@@ -20,7 +20,6 @@ app.get('/api/download', async (req, res) => {
         return res.status(400).json({ success: false, error: 'A valid Instagram URL is required.' });
     }
 
-    // Check for login credentials in environment variables
     if (!process.env.INSTA_USER || !process.env.INSTA_PASS) {
         console.error('Instagram username or password not set in environment variables.');
         return res.status(500).json({ success: false, error: 'Server is not configured for login.' });
@@ -40,26 +39,38 @@ app.get('/api/download', async (req, res) => {
 
         const page = await browser.newPage();
         await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/108.0.0.0 Safari/537.36');
-        page.setDefaultNavigationTimeout(90000); // 90-second timeout for login and navigation
+        page.setDefaultNavigationTimeout(90000); // 90-second timeout
 
-        // --- LOGIN LOGIC ---
+        // --- ADVANCED LOGIN LOGIC ---
         console.log('Navigating to login page...');
         await page.goto('https://www.instagram.com/accounts/login/', { waitUntil: 'networkidle2' });
         
-        // Wait for input fields to be visible
-        await page.waitForSelector('input[name="username"]');
-        await page.waitForSelector('input[name="password"]');
+        // Handle Cookie Banner
+        try {
+            console.log('Checking for cookie banner...');
+            const cookieButtonSelector = 'button._a9--._a9_1';
+            await page.waitForSelector(cookieButtonSelector, { timeout: 5000 });
+            await page.click(cookieButtonSelector);
+            console.log('Cookie banner accepted.');
+            await page.waitForTimeout(1000); // Wait a moment after clicking
+        } catch (e) {
+            console.log('No cookie banner found or it timed out, proceeding.');
+        }
 
+        // Wait for input fields to be ready
+        await page.waitForSelector('input[name="username"]', { visible: true });
+        
         console.log('Typing credentials...');
-        await page.type('input[name="username"]', process.env.INSTA_USER, { delay: 50 });
-        await page.type('input[name="password"]', process.env.INSTA_PASS, { delay: 50 });
+        await page.type('input[name="username"]', process.env.INSTA_USER, { delay: 100 });
+        await page.type('input[name="password"]', process.env.INSTA_PASS, { delay: 100 });
 
         console.log('Submitting login form...');
         await page.click('button[type="submit"]');
         
-        // Wait for navigation after login, which indicates success
-        await page.waitForNavigation({ waitUntil: 'networkidle2' });
-        console.log('Login successful.');
+        // Wait for a known element on the home feed to confirm successful login
+        console.log('Waiting for login confirmation...');
+        await page.waitForSelector("a[href='/explore/']", { timeout: 15000 });
+        console.log('Login successful, home feed element found.');
         
         // --- SCRAPING LOGIC ---
         console.log('Navigating to target URL...');
@@ -87,7 +98,7 @@ app.get('/api/download', async (req, res) => {
 
     } catch (error) {
         console.error('Error during Puppeteer login/scrape process:', error.message);
-        return res.status(500).json({ success: false, error: "An error occurred while processing the page. The URL might be invalid." });
+        return res.status(500).json({ success: false, error: "Login may have failed due to a CAPTCHA or verification step." });
     } finally {
         if (browser) {
             await browser.close();
